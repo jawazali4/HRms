@@ -1,0 +1,45 @@
+{
+  "name": "hrms-saudi",
+  "version": "1.0.0",
+  "description": "Production-ready HRMS for Saudi Arabia — Employees, Attendance (kiosk/mobile/web), Payroll with GOSI & Saudi Labour Law, Loans, Leave, Assets, Pay-slip PDF + email.",
+  "license": "MIT",
+  "private": true,
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "concurrently -k -n API,WEB -c blue,green \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "node backend/server.js",
+    "dev:web": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "start": "node backend/server.js",
+    "db:sync": "node backend/scripts/dbSetup.js --sync",
+    "db:seed": "node backend/scripts/dbSetup.js --seed",
+    "db:setup": "node backend/scripts/dbSetup.js --sync --seed",
+    "test": "node --test backend/test/*.test.js",
+    "test:payroll": "node --test backend/test/payroll.test.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "nodemailer": "^6.9.16",
+    "pdfkit": "^0.15.2",
+    "pg": "^8.13.1",
+    "sequelize": "^6.37.5",
+    "serverless-http": "^3.2.0",
+    "sqlite3": "^5.1.7"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.28.1",
+    "supertest": "^7.0.0",
+    "vite": "^5.4.11"
+  }
+}

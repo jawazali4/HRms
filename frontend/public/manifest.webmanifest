@@ -1,0 +1,12 @@
+{
+  "name": "Jawaz' HRMS",
+  "short_name": "Jawaz HRMS",
+  "description": "Jawaz' HRMS — human resource management for Saudi Arabia: attendance, payroll (GOSI), leave, loans and assets.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f766e",
+  "theme_color": "#0f766e",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

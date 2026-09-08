@@ -1,0 +1,34 @@
+# ============================================================
+# Netlify configuration (used automatically when you deploy)
+# Frontend = static React app (built by Vite)
+# Backend  = the same Express API, running as one Netlify Function
+# ============================================================
+
+[build]
+  command = "npm run build"
+  publish = "frontend/dist"
+  functions = "netlify/functions"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  node_bundler = "esbuild"
+  external_node_modules = ["sqlite3"]
+
+# Send every /api request to the Express API running inside a Netlify Function
+[[redirects]]
+  from = "/api/*"
+  to = "/.netlify/functions/api/:splat"
+  status = 200
+
+[[redirects]]
+  from = "/api"
+  to = "/.netlify/functions/api"
+  status = 200
+
+# Single-page-app fallback: any unknown URL shows the app (client-side routing)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
