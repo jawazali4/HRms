@@ -75,11 +75,12 @@ module.exports.handler = async (event, context) => {
   } catch (err) {
     // Surface the real reason in the function log AND (briefly) to the
     // browser so that a mis-configured DATABASE_URL is easy to spot.
+    const known = err && (err.code === 'DB_HOST_UNREACHABLE' || err.code === 'DB_AUTH');
     return jsonError(
       503,
-      'Database is still starting. Please refresh in a few seconds.',
-      'DB_INIT',
-      String((err && err.message) || err).slice(0, 300)
+      known ? err.message : 'Database is still starting. Please refresh in a few seconds.',
+      known ? err.code : 'DB_INIT',
+      known ? undefined : String((err && err.message) || err).slice(0, 300)
     );
   }
 
