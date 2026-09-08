@@ -5,6 +5,7 @@
  */
 'use strict';
 
+const os = require('os');
 const path = require('path');
 require('dotenv').config(); // loads .env from the current working directory (project root)
 
@@ -15,9 +16,25 @@ function bool(value, fallback) {
   return String(value).toLowerCase() === 'true' || value === true || value === '1';
 }
 
+// Are we running inside a serverless function (Netlify / AWS Lambda)?
+// There the deployed code lives on a READ-ONLY filesystem — only /tmp is
+// writable. Creating the SQLite file next to the code would throw EACCES
+// while the function is loading, which Netlify reports as a bare 502.
+const isServerless = Boolean(
+  process.env.NETLIFY ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.LAMBDA_TASK_ROOT
+);
+
+function defaultSqlitePath() {
+  if (isServerless) return path.join(os.tmpdir(), 'hrms', 'hrms.sqlite');
+  return path.join(__dirname, 'data', 'hrms.sqlite');
+}
+
 module.exports = {
   isProd,
   isTest: process.env.NODE_ENV === 'test',
+  isServerless,
 
   company: {
     name: process.env.COMPANY_NAME || 'Al Noor Trading Company',
@@ -33,10 +50,9 @@ module.exports = {
     // Supabase/Postgres connection string, e.g.
     // postgres://postgres:password@db.xxxx.supabase.co:5432/postgres
     url: process.env.DATABASE_URL || '',
-    // Local SQLite file (used automatically when DATABASE_URL is empty)
-    storage:
-      process.env.DB_STORAGE ||
-      path.join(__dirname, 'data', 'hrms.sqlite'),
+    // Local SQLite file (used automatically when DATABASE_URL is empty).
+    // On Netlify/Lambda this must live in /tmp — see defaultSqlitePath().
+    storage: process.env.DB_STORAGE || defaultSqlitePath(),
     forceSync: bool(process.env.DB_FORCE_SYNC, false), // drop + recreate (DANGEROUS)
   },
 

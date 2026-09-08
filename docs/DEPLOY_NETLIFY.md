@@ -196,6 +196,7 @@ To force a rebuild now: **Deploys ▸ Trigger deploy ▸ Deploy site**.
 | Attendance / pay slips disappear later | You are on Netlify's temporary storage. Connect the free Supabase database (Section 4). |
 | Pay slip email button says *"Email is not configured"* | Complete Section 5 (Gmail + app password), then trigger a deploy. |
 | Site shows a **404** after deploy | Wait for the green **Published** badge, then refresh. |
+| Site shows **502 Bad Gateway** or *"Request failed (502)"* on login | The API function crashed while starting. Open **Netlify ▸ Logs ▸ Functions ▸ api** and read the last error. Usual causes: a wrong `DATABASE_URL` (re-copy it from Supabase, including the password) or a red build in **Deploys**. Trigger a fresh deploy after fixing. |
 | Clock-in kiosk says *"PIN not correct"* | Demo PIN is `1234`. HR can set/reset a PIN via **Employees ▸ PIN**; employees can change their own in **My Profile**. |
 | You changed code but the site looks the same | Netlify auto-builds from GitHub. Check **Deploys** for a red build and read the error, or **Trigger deploy**. |
 | I want my own nice domain like `hr.company.com` | In Netlify: **Domain settings ▸ Add a domain**, then change DNS at your domain provider. (Buy a domain at any registrar; ~$10/year.) |
