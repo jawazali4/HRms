@@ -1,7 +1,7 @@
 {
-  "name": "HRMS Saudi Arabia",
-  "short_name": "HRMS",
-  "description": "Human Resource Management for Saudi Arabia — attendance, payroll (GOSI), leave, loans, assets.",
+  "name": "Jawaz' HRMS",
+  "short_name": "Jawaz HRMS",
+  "description": "Jawaz' HRMS — human resource management for Saudi Arabia: attendance, payroll (GOSI), leave, loans and assets.",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#0f766e",

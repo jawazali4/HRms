@@ -1,8 +1,11 @@
-# HRMS Saudi — Human Resource Management System
+# Jawaz' HRMS — Human Resource Management System
 
 A complete, production-ready HRMS for companies in **Saudi Arabia**, built for
 **50–500 employees**, with role-based access (employee / manager / HR / admin) and
 **GOSI + Saudi Labour Law** built into the payroll engine.
+
+**Developed by Jawaz Ali** — IT Support Specialist at Derbn Trading (شركة دربن التجارية)
+📧 Jawaz2013@gmail.com · 📱 +966 53 961 8563 · 📍 Saudi Arabia
 
 **Deploy it live on Netlify in ~30 minutes — no coding needed.**
 ➡️ Start here: [`docs/DEPLOY_NETLIFY.md`](docs/DEPLOY_NETLIFY.md) (beginner step-by-step)

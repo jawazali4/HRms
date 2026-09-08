@@ -28,10 +28,10 @@ export default function Layout() {
     <div className="app">
       <div className={open ? 'sidebar open' : 'sidebar'}>
         <div className="brand">
-          <div className="logo">H</div>
+          <div className="logo">J</div>
           <div>
-            <b>HRMS Saudi</b>
-            <small>People · Payroll · Compliance</small>
+            <b>Jawaz' HRMS</b>
+            <small>Human Resource Management</small>
           </div>
         </div>
         <nav className="nav">
@@ -42,7 +42,13 @@ export default function Layout() {
           ))}
         </nav>
         <div className="sidefoot">
-          GOSI &amp; Saudi Labour Law ready · Demo system
+          <div style={{ fontSize: 11.5, lineHeight: 1.5 }}>
+            Developed by <b style={{ color: '#e6f4f2' }}>Jawaz Ali</b>
+            <br />
+            IT Support · Derbn Trading (دربن التجارية)
+            <br />
+            📧 Jawaz2013@gmail.com · 📍 Saudi Arabia
+          </div>
           {loc.pathname !== '/kiosk' && (
             <div style={{ marginTop: 8 }}>
               <button className="btn ghost sm" style={{ color: '#0b2b2a', width: '100%' }} onClick={logout}>Sign out</button>

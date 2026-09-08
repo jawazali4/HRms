@@ -44,7 +44,7 @@ export default function Dashboard() {
       <div className="pagehead">
         <div>
           <h1>{isHR ? 'Company overview' : `Welcome back, ${me ? me.fullNameEn.split(' ')[0] : user.email.split('@')[0]} 👋`}</h1>
-          <p>Al Noor Trading Company — Riyadh, Saudi Arabia · {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
+          <p>Jawaz' HRMS — Saudi Arabia · {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}</p>
         </div>
         {!isHR && (
           <Link className="btn ghost" to="/attendance">View my attendance</Link>

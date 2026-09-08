@@ -58,7 +58,7 @@ export default function Kiosk() {
   return (
     <div className="kiosk-wrap">
       <div style={{ textAlign: 'center' }}>
-        <div style={{ fontWeight: 800, letterSpacing: '.12em', color: '#99f6e4', fontSize: 13 }}>AL NOOR TRADING · TIME ATTENDANCE</div>
+        <div style={{ fontWeight: 800, letterSpacing: '.12em', color: '#99f6e4', fontSize: 13 }}>JAWAZ' HRMS · TIME ATTENDANCE</div>
         <div className="kiosk-clock">{ryadhTime}</div>
         <div style={{ opacity: 0.85 }}>{ryadhDate} · Riyadh (GMT+3)</div>
       </div>
