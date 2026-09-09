@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { api } from '../api';
+import { api, download } from '../api';
 import { useAuth } from '../context/AuthContext';
 import { useLanguage } from '../context/LanguageContext';
 import { Stat, Badge, fmtMoney, fmtDate, fmtClock, monthName } from '../components/ui';
@@ -219,9 +219,15 @@ export default function Dashboard() {
                       {data.mine.latestPayslip.emailStatus === 'sent' && <small style={{ color: '#bbf7d0' }}>✓ {isRTL ? 'تم الإرسال' : 'emailed'}</small>}
                     </div>
                   </div>
-                  <a className="btn soft" target="_blank" rel="noreferrer" href={`/api/payroll/payslips/${data.mine.latestPayslip.id}/pdf`}>
+                  <button className="btn soft" onClick={async () => {
+                    try {
+                      await download(`/api/payroll/payslips/${data.mine.latestPayslip.id}/pdf`, `payslip-${data.mine.latestPayslip.period}.pdf`);
+                    } catch (e) {
+                      alert(`Download failed: ${e.message}`);
+                    }
+                  }}>
                     PDF ↓
-                  </a>
+                  </button>
                 </div>
               </div>
             ) : (

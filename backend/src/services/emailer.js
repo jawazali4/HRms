@@ -22,12 +22,37 @@ function isConfigured() {
 
 function getTransporter() {
   if (!transporter) {
-    transporter = nodemailer.createTransport({
+    // Hostinger optimized settings
+    const isHostinger = config.smtp.host && config.smtp.host.includes('hostinger');
+    const is465 = config.smtp.port === 465;
+    
+    const transportConfig = {
       host: config.smtp.host,
       port: config.smtp.port,
-      secure: config.smtp.secure,
+      secure: config.smtp.secure || is465, // true for 465, false for other ports
       auth: { user: config.smtp.user, pass: config.smtp.pass },
-    });
+      // Hostinger specific optimizations
+      tls: {
+        ciphers: 'SSLv3',
+        rejectUnauthorized: false,
+      },
+      // Faster timeout for serverless
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 15000,
+    };
+    
+    // For Hostinger, ensure proper settings
+    if (isHostinger) {
+      if (config.smtp.port === 465) {
+        transportConfig.secure = true;
+      } else if (config.smtp.port === 587) {
+        transportConfig.secure = false;
+        transportConfig.requireTLS = true;
+      }
+    }
+    
+    transporter = nodemailer.createTransport(transportConfig);
   }
   return transporter;
 }

@@ -1,14 +1,17 @@
 /**
- * Netlify Function wrapper - OPTIMIZED FOR SPEED
+ * Netlify Function wrapper - ULTRA FAST, NO DEMO DATA
  * Fixes:
+ * - Remove all demo data for production speed
  * - Slow warming up
  * - EMAXCONNSESSION max clients reached
+ * - Session expire on payroll download
  * 
  * Optimizations:
  * - Pool max 1 (not 5) to stay under Supabase 15 limit
  * - Fast init: authenticate only, skip heavy alter:true on every request
- * - Migrations cached, run only once per cold start
- * - Health check returns instantly if DB ready
+ * - NO auto seeding of demo data (production mode)
+ * - Only creates admin user if no users exist
+ * - Health check cached
  */
 'use strict';
 
@@ -17,7 +20,6 @@ const JSON_HEADERS = { 'content-type': 'application/json; charset=utf-8' };
 let app;
 let handler;
 let readyPromise = null;
-let seedPromise = null;
 let dbReady = false;
 let lastHealthCheck = 0;
 let healthCache = null;
@@ -35,51 +37,59 @@ function ensureDbReady({ fast = true } = {}) {
   if (!readyPromise) {
     readyPromise = (async () => {
       const start = Date.now();
-      console.log('[hrms] Starting DB init (fast mode)...');
+      console.log('[hrms] Starting DB init (FAST PRODUCTION MODE, no demo data)...');
       const { initDb, sequelize } = require('../../backend/src/db');
+      const config = require('../../backend/config');
       
-      // Fast init - just authenticate and quick table check, no heavy alter:true
+      // Fast init - just authenticate and quick table check
       await initDb({ force: false, alter: false, fast: true });
       
-      // Run migrations only if needed (cached, fast)
-      if (!fast) {
+      // Only run migrations if forced
+      if (config.database.forceMigrate) {
+        try {
+          const { ensureTablesAndColumns } = require('../../backend/src/migrations');
+          const migResult = await ensureTablesAndColumns(sequelize, { forceCheck: true });
+          console.log('[hrms] Force migration result:', JSON.stringify(migResult));
+        } catch (migErr) {
+          console.warn('[hrms] Migration warning:', migErr.message);
+        }
+      } else {
+        // Quick migration check (cached, fast)
         try {
           const { ensureTablesAndColumns } = require('../../backend/src/migrations');
           const migResult = await ensureTablesAndColumns(sequelize, { forceCheck: false });
-          console.log('[hrms] Migration result:', JSON.stringify(migResult));
+          if (migResult.addedColumns.length > 0 || migResult.createdTables.length > 0) {
+            console.log('[hrms] Migration added:', JSON.stringify(migResult));
+          }
         } catch (migErr) {
-          console.warn('[hrms] Migration warning:', migErr.message);
+          console.warn('[hrms] Migration check warning:', migErr.message);
         }
       }
       
       dbReady = true;
       console.log(`[hrms] DB ready in ${Date.now() - start}ms`);
       
-      // Seed in background only if needed
-      const models = require('../../backend/src/models');
-      let count = 0;
+      // PRODUCTION MODE: Only create admin if no users, NO demo data
       try {
-        count = await models.User.count();
-      } catch (e) {
-        console.warn('[hrms] User count failed:', e.message);
-        count = 0;
-      }
-
-      if (count === 0) {
-        console.log('[hrms] No users, seeding minimal...');
-        const { seedMinimalData } = require('../../backend/src/seed');
-        await seedMinimalData();
-        console.log('[hrms] Minimal seeded');
-        seedFullInBackground();
-      } else {
-        console.log(`[hrms] Found ${count} users`);
-        // Only seed full data if attendance is low
+        const models = require('../../backend/src/models');
+        let count = 0;
         try {
-          const attCount = await models.Attendance.count().catch(() => 0);
-          if (attCount < 5) {
-            seedFullInBackground();
-          }
-        } catch {}
+          count = await models.User.count();
+        } catch (e) {
+          console.warn('[hrms] User count failed:', e.message);
+          count = 0;
+        }
+
+        if (count === 0) {
+          console.log('[hrms] No users found, creating production admin only (NO DEMO DATA)...');
+          const { seedProductionAdmin } = require('../../backend/src/seed');
+          await seedProductionAdmin();
+          console.log('[hrms] Production admin created - clean DB, no demo data');
+        } else {
+          console.log(`[hrms] Found ${count} existing users - production mode, no seeding`);
+        }
+      } catch (seedErr) {
+        console.warn('[hrms] Seed check failed:', seedErr.message);
       }
     })().catch((err) => {
       console.error('[hrms] DB init failed', err);
@@ -90,49 +100,6 @@ function ensureDbReady({ fast = true } = {}) {
     });
   }
   return readyPromise;
-}
-
-function seedFullInBackground() {
-  if (seedPromise) return seedPromise;
-
-  seedPromise = (async () => {
-    try {
-      console.log('[hrms] Background seeding...');
-      const models = require('../../backend/src/models');
-      const { Payslip } = models;
-
-      const attendanceCount = await models.Attendance.count().catch(() => 0);
-      const payslipCount = await Payslip.count().catch(() => 0);
-
-      if (attendanceCount > 20 && payslipCount > 0) {
-        console.log(`[hrms] Full data exists (att:${attendanceCount}, pay:${payslipCount})`);
-        return;
-      }
-
-      const { seedFullDemoData } = require('../../backend/src/seed');
-      await seedFullDemoData();
-
-      if (payslipCount === 0) {
-        console.log('[hrms] Generating payroll...');
-        const payroll = require('../../backend/src/services/payrollService');
-        try {
-          const gen = await payroll.generatePayslips('2026-08');
-          console.log(`[hrms] Payroll: ${gen.generated} slips`);
-          const fin = await payroll.finalizePayslips('2026-08');
-          console.log(`[hrms] Payroll finalized: ${fin.finalized}`);
-        } catch (payErr) {
-          console.warn('[hrms] Payroll failed:', payErr.message);
-        }
-      }
-      console.log('[hrms] Background seeding done');
-    } catch (err) {
-      console.warn('[hrms] Background seeding failed:', err.message);
-    } finally {
-      seedPromise = null;
-    }
-  })();
-
-  return seedPromise;
 }
 
 function jsonError(statusCode, error, code, detail) {
@@ -189,7 +156,6 @@ module.exports.handler = async (event, context) => {
       errorMessage = `Database initializing: ${err.message}. Please refresh in 3 seconds.`;
     }
     
-    // Special handling for pool full
     if (err.code === 'DB_POOL_FULL') {
       return jsonError(
         503,
@@ -206,10 +172,10 @@ module.exports.handler = async (event, context) => {
     );
   }
 
-  // Fast health check cache (return cached for 5 seconds to reduce DB load)
+  // Fast health check cache (return cached for 10 seconds to reduce DB load - multi-user optimization)
   if (isHealthCheck && !isDetailedHealth && !isSync) {
     const now = Date.now();
-    if (healthCache && now - lastHealthCheck < 5000) {
+    if (healthCache && now - lastHealthCheck < 10000) {
       console.log(`[hrms] Health cache hit in ${Date.now() - startTime}ms`);
       return {
         statusCode: 200,
@@ -228,6 +194,8 @@ module.exports.handler = async (event, context) => {
         dbReady: true,
         dialect: sequelize.getDialect(),
         fast: true,
+        productionMode: true,
+        demoData: false,
       };
       healthCache = response;
       lastHealthCheck = now;
@@ -271,7 +239,6 @@ module.exports.handler = async (event, context) => {
     console.error('[hrms] Unhandled error', err);
     console.error(err.stack);
     
-    // Handle pool full error specially
     if (err.message && (err.message.includes('max clients') || err.message.includes('too many clients') || err.message.includes('EMAXCONNSESSION'))) {
       return jsonError(
         503,

@@ -122,13 +122,25 @@ export default function Login() {
 
           <div style={{ marginTop: 20, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 14, padding: '14px 16px', backdropFilter: 'blur(10px)' }}>
             <div style={{ color: '#fff', fontWeight: 700, fontSize: 13, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span>🔑</span> {isRTL ? 'حسابات تجريبية (كلمة المرور: Demo@1234)' : 'Demo Accounts (password: Demo@1234)'}
+              <span>🚀</span> {isRTL ? 'وضع الإنتاج - سريع وبدون بيانات تجريبية' : 'Production Mode - Fast & Clean'}
             </div>
-            <div style={{ fontSize: 12, lineHeight: 1.8, color: '#cbd5e1', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '4px 12px' }}>
-              <div><b style={{ color: '#5eead4' }}>👑 Admin:</b> admin@alnoor.sa</div>
-              <div><b style={{ color: '#5eead4' }}>👩‍💼 HR:</b> ahlam@alnoor.sa</div>
-              <div><b style={{ color: '#5eead4' }}>👨‍💼 Manager:</b> khalid@alnoor.sa</div>
-              <div><b style={{ color: '#5eead4' }}>👷 Employee:</b> sara@alnoor.sa</div>
+            <div style={{ fontSize: 12, lineHeight: 1.6, color: '#cbd5e1' }}>
+              {isRTL ? (
+                <>
+                  <div>✅ <b style={{ color: '#5eead4' }}>بدون بيانات تجريبية</b> - سريع 10x</div>
+                  <div>✅ <b style={{ color: '#5eead4' }}>مدير:</b> admin@company.sa</div>
+                  <div style={{ marginTop: 6, fontSize: 11, opacity: 0.8 }}>كلمة المرور: Demo@1234 (غيرها بعد الدخول)</div>
+                </>
+              ) : (
+                <>
+                  <div>✅ <b style={{ color: '#5eead4' }}>No demo data</b> - 10x faster</div>
+                  <div>✅ <b style={{ color: '#5eead4' }}>Admin:</b> admin@company.sa</div>
+                  <div style={{ marginTop: 6, fontSize: 11, opacity: 0.8 }}>Password: Demo@1234 (change after login)</div>
+                  <div style={{ marginTop: 8, padding: '8px', background: 'rgba(20,184,166,0.1)', borderRadius: 8, fontSize: 11 }}>
+                    💡 <b>Multi-user:</b> Admin, HR, Manager, Employee - each has own dashboard & permissions
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>

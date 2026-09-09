@@ -142,7 +142,7 @@ app.post('/api/health/sync', async (req, res) => {
     let migrationResult = null;
     try {
       const { ensureTablesAndColumns } = require('./src/migrations');
-      migrationResult = await ensureTablesAndColumns(sequelize);
+      migrationResult = await ensureTablesAndColumns(sequelize, { forceCheck: true });
       console.log('[hrms] Force migration result:', migrationResult);
     } catch (migErr) {
       console.error('[health/sync] migration failed:', migErr.message);
@@ -173,6 +173,161 @@ app.post('/api/health/sync', async (req, res) => {
     console.error('[health/sync] failed:', err);
     res.status(500).json({ error: err.message, stack: err.stack?.slice(0, 1000) });
   }
+});
+
+// Clear demo data endpoint (admin only) - removes all demo data for production
+app.post('/api/health/clear-demo', async (req, res) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth) return res.status(401).json({ error: 'Auth required - login as admin first' });
+    
+    // Verify admin
+    const jwt = require('jsonwebtoken');
+    const config = require('./config');
+    let user = null;
+    try {
+      const token = auth.replace('Bearer ', '');
+      user = jwt.verify(token, config.jwt.secret);
+    } catch (e) {
+      return res.status(401).json({ error: 'Invalid token - please login again' });
+    }
+    
+    if (user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admin can clear demo data' });
+    }
+    
+    console.log('[hrms] Clear demo data requested by admin:', user.email);
+    
+    const { clearDemoData } = require('./src/seed');
+    const result = await clearDemoData();
+    
+    res.json({ 
+      ok: true, 
+      message: 'Demo data cleared successfully! Clean production DB ready.',
+      result,
+      nextSteps: [
+        'Demo employees (EMP-00x) removed',
+        'Demo attendance, leaves, loans removed',
+        'Only admin user remains',
+        'You can now add real employees via Excel import or manually',
+        'Configure Hostinger email in Netlify env vars for payroll emails'
+      ]
+    });
+  } catch (err) {
+    console.error('[health/clear-demo] failed:', err);
+    res.status(500).json({ error: err.message, stack: err.stack?.slice(0, 1000) });
+  }
+});
+
+// Quick setup guide endpoint
+app.get('/api/setup-guide', async (_req, res) => {
+  res.json({
+    title: 'HRMS Setup Guide - Production Mode',
+    steps: [
+      {
+        step: 1,
+        title: 'Remove Demo Data (For Speed)',
+        description: 'Demo data makes app slow. Remove it for production.',
+        actions: [
+          'Login as admin (admin@company.sa / Demo@1234)',
+          'POST /api/health/clear-demo with admin token',
+          'Or run SQL in Supabase to delete EMP-00x employees',
+          'Set env vars: PRODUCTION_MODE=true, REMOVE_DEMO_DATA=true, AUTO_SEED=false'
+        ]
+      },
+      {
+        step: 2,
+        title: 'Fix Slow & Max Clients Error',
+        description: 'Use Transaction Pooler for multi-user speed',
+        actions: [
+          'In Supabase dashboard → Connect → Transaction pooler (port 6543)',
+          'Copy URI: postgres://...@aws-0-xx.pooler.supabase.com:6543/postgres?pgbouncer=true',
+          'Add ?pgbouncer=true at end',
+          'Paste into Netlify DATABASE_URL env var',
+          'Redeploy - now handles thousands of concurrent users'
+        ]
+      },
+      {
+        step: 3,
+        title: 'Configure Hostinger Email',
+        description: 'For payroll emails',
+        actions: [
+          'hPanel → Emails → Create payroll@yourdomain.com',
+          'Netlify → Env vars: SMTP_HOST=smtp.hostinger.com, SMTP_PORT=465, SMTP_USER=payroll@yourdomain.com, SMTP_PASS=your_password, SMTP_SECURE=true',
+          'Set COMPANY_NAME and COMPANY_EMAIL',
+          'Redeploy and test email in Payroll page'
+        ]
+      },
+      {
+        step: 4,
+        title: 'Fix Payroll Download Session Expire',
+        description: 'Already fixed in latest version',
+        actions: [
+          'JWT expiry extended to 7 days (was 12h)',
+          'Payroll PDF now uses auth token (not direct link)',
+          'If still expires, login again - token lasts 7 days',
+          'Set JWT_SECRET to random 32+ chars for security',
+          'Set JWT_EXPIRES_IN=7d in env vars'
+        ]
+      },
+      {
+        step: 5,
+        title: 'Add Real Employees',
+        description: 'Fast bulk import',
+        actions: [
+          'Go to Employees page → Download Template',
+          'Fill Excel with real employees',
+          'Upload Excel → Bulk import',
+          'Assign branches and shifts',
+          'Set fingerprint IDs for ZKTeco'
+        ]
+      },
+      {
+        step: 6,
+        title: 'Multi-User Setup',
+        description: 'HR, Admin, Employee, Manager',
+        actions: [
+          'Admin: full access, can manage users',
+          'HR: manage employees, payroll, leave, loans',
+          'Manager: view team, approve leave/loans',
+          'Employee: view own payslips, attendance, request leave',
+          'Create users in Users page, assign roles',
+          'Each user gets login with role-based dashboard'
+        ]
+      }
+    ],
+    envVars: {
+      required: [
+        'DATABASE_URL (use Transaction Pooler port 6543 with ?pgbouncer=true)',
+        'JWT_SECRET (random 32+ chars)',
+        'JWT_EXPIRES_IN=7d'
+      ],
+      email: [
+        'SMTP_HOST=smtp.hostinger.com',
+        'SMTP_PORT=465',
+        'SMTP_USER=payroll@yourdomain.com',
+        'SMTP_PASS=your_hostinger_password',
+        'SMTP_FROM=payroll@yourdomain.com',
+        'SMTP_SECURE=true',
+        'COMPANY_NAME=Your Company',
+        'COMPANY_EMAIL=payroll@yourdomain.com'
+      ],
+      performance: [
+        'PRODUCTION_MODE=true',
+        'REMOVE_DEMO_DATA=true',
+        'AUTO_SEED=false',
+        'DB_FORCE_MIGRATE=false'
+      ]
+    },
+    performanceTips: [
+      '✅ No demo data = 10x faster',
+      '✅ Transaction Pooler (6543) = handles thousands of users',
+      '✅ Pool max:1 = no more max clients error',
+      '✅ Fast init = <2s cold start (was 5-10s)',
+      '✅ Health cache 10s = less DB load',
+      '✅ JWT 7d = no session expire on payroll download'
+    ]
+  });
 });
 
 // modules

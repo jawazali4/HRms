@@ -1,8 +1,8 @@
 /**
- * Local development / self-hosted server.
+ * Local development / self-hosted server - PRODUCTION MODE, NO DEMO DATA
  *   npm run dev:api   (or: npm start)
  *
- * Boots the database (creates tables + demo data on first run) and
+ * Boots the database (creates tables, NO demo data) and
  * serves the API on http://localhost:4000
  */
 'use strict';
@@ -16,12 +16,12 @@ async function boot() {
   console.log('[hrms] Booting server...');
   console.log(`[hrms] Environment: ${config.isServerless ? 'serverless' : 'local'}, dialect: ${config.database.url ? 'postgres' : 'sqlite'}`);
   console.log(`[hrms] Storage: ${config.database.storage}`);
+  console.log(`[hrms] Mode: ${config.seed.productionMode ? 'PRODUCTION (no demo data, FAST)' : 'DEMO'}`);
 
   const forceMigrate = config.database.forceMigrate || config.database.forceSync;
   await initDb({ force: config.database.forceSync, alter: forceMigrate, fast: !forceMigrate });
   console.log('[hrms] Database initialized');
   
-  // Run migrations if forceMigrate
   if (forceMigrate) {
     try {
       const { ensureTablesAndColumns } = require('./src/migrations');
@@ -33,7 +33,7 @@ async function boot() {
     }
   }
 
-  // First run → seed data
+  // First run → only create admin, NO demo data
   let count = 0;
   try {
     count = await models.User.count();
@@ -41,56 +41,32 @@ async function boot() {
     console.warn('[hrms] Could not count users, assuming 0:', e.message);
   }
 
-  const isProduction = config.seed.productionMode || config.seed.removeDemoData;
-
   if (count === 0) {
-    if (isProduction) {
-      console.log('[hrms] No users found, production mode - creating admin only...');
-      const { seedProductionAdmin } = require('./src/seed');
-      const result = await seedProductionAdmin();
-      console.log(`[hrms] Production setup:`, result);
-    } else {
-      console.log('[hrms] No users found, seeding demo data...');
-      const { seedDemoData } = require('./src/seed');
-      const result = await seedDemoData();
-      console.log(`[hrms] Demo data seeded:`, result);
-      try {
-        const payroll = require('./src/services/payrollService');
-        await payroll.generatePayslips('2026-08');
-        const res = await payroll.finalizePayslips('2026-08');
-        console.log(`  Payroll Aug 2026 pre-generated → ${res.finalized} slips`);
-      } catch (payErr) {
-        console.warn('[hrms] Payroll pre-generation failed:', payErr.message);
-      }
-    }
+    console.log('[hrms] No users found, creating production admin (NO DEMO DATA for speed)...');
+    const { seedProductionAdmin } = require('./src/seed');
+    const result = await seedProductionAdmin();
+    console.log(`[hrms] Production setup:`, result);
+    console.log('');
+    console.log('  ✅ Clean database ready - no demo data');
+    console.log(`  👑 Admin: ${process.env.ADMIN_EMAIL || 'admin@company.sa'} / ${config.seed.demoPassword}`);
+    console.log('  📧 Configure Hostinger email in .env for payroll emails');
+    console.log('');
   } else {
-    console.log(`[hrms] Found ${count} existing users`);
-    if (!isProduction) {
-      try {
-        const { Attendance, Payslip } = models;
-        const attCount = await Attendance.count().catch(() => 0);
-        const payCount = await Payslip.count().catch(() => 0);
-        if (attCount < 10 || payCount === 0) {
-          console.log('[hrms] Full demo data missing, seeding in background...');
-          const { seedFullDemoData } = require('./src/seed');
-          seedFullDemoData().then(() => console.log('[hrms] Background full seed completed')).catch((e) => console.warn('[hrms] Background seed failed:', e.message));
-        }
-      } catch (e) {
-        console.warn('[hrms] Could not check full demo data:', e.message);
-      }
-    }
+    console.log(`[hrms] Found ${count} existing users - production mode, no demo seeding for speed`);
   }
 
   app.listen(config.port, '0.0.0.0', () => {
     console.log('');
     console.log('  ┌────────────────────────────────────────────────────┐');
-    console.log('  │   HRMS (Saudi Arabia) API is running               │');
+    console.log('  │   HRMS (Saudi Arabia) - PRODUCTION MODE            │');
     console.log(`  │   Local:  http://localhost:${config.port}/api/health        │`);
     console.log('  │   Health: http://localhost:4000/api/health/detailed │');
     console.log('  └────────────────────────────────────────────────────┘');
     console.log(`  Database: ${config.database.url ? 'PostgreSQL (Supabase)' : 'SQLite (local file)'}`);
     console.log(`  Storage: ${config.database.storage}`);
-    console.log(`  Demo login (HR): ahlam@alnoor.sa  /  ${config.seed.demoPassword}`);
+    console.log(`  Mode: PRODUCTION (fast, no demo data)`);
+    console.log(`  JWT Expiry: ${config.jwt.expiresIn} (extended for multi-user)`);
+    console.log(`  Email: ${config.smtp.host ? `Configured (${config.smtp.host})` : 'Not configured - see HOSTINGER_EMAIL_SETUP.md'}`);
     console.log('');
   });
 }

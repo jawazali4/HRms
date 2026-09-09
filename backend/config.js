@@ -69,19 +69,19 @@ module.exports = {
   jwt: {
     secret:
       process.env.JWT_SECRET || 'hrms-dev-secret-do-not-use-in-production!!-change-me',
-    expiresIn: process.env.JWT_EXPIRES_IN || '12h',
+    // Extended to 7 days for better UX - no more session expire on payroll download
+    // Multi-user: HR, Admin, Employee, Manager need longer sessions
+    expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
 
   seed: {
-    // Seed demo data automatically when the database is empty.
-    autoSeed: bool(process.env.AUTO_SEED, true),
+    // IMPORTANT: For production, set AUTO_SEED=false and PRODUCTION_MODE=true to remove demo data and be FAST
+    // Demo data makes app SLOW - disable for production!
+    autoSeed: bool(process.env.AUTO_SEED, false), // Changed to false by default for speed
     demoPassword: process.env.DEMO_PASSWORD || 'Demo@1234',
-    // Fast seed uses precomputed hashes for instant cold start
-    fastSeed: bool(process.env.FAST_SEED, isServerless),
-    // Set to true to remove demo data and start with empty DB (for production)
-    removeDemoData: bool(process.env.REMOVE_DEMO_DATA, false),
-    // When true, only create admin user, no demo employees
-    productionMode: bool(process.env.PRODUCTION_MODE, false),
+    fastSeed: bool(process.env.FAST_SEED, true), // Always fast
+    removeDemoData: bool(process.env.REMOVE_DEMO_DATA, true), // Remove demo data by default
+    productionMode: bool(process.env.PRODUCTION_MODE, true), // Production mode by default - FASTEST
   },
 
   corsOrigins: (process.env.CORS_ORIGINS || '*')

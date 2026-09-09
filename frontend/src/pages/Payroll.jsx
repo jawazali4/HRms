@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { api, currentMonth } from '../api';
+import { api, download, currentMonth } from '../api';
 import { Badge, Modal, Loader, fmtMoney, monthName, fmtClock } from '../components/ui';
 
 export default function Payroll() {
@@ -198,6 +198,20 @@ export default function Payroll() {
 
 export function PayslipModal({ slip, onClose, onEmail }) {
   const j = slip.json || {};
+  const [downloading, setDownloading] = useState(false);
+  
+  const handleDownload = async () => {
+    setDownloading(true);
+    try {
+      const fname = `payslip-${slip.employee?.employeeCode || slip.employeeId}-${slip.period}.pdf`;
+      await download(`/api/payroll/payslips/${slip.id}/pdf`, fname);
+    } catch (e) {
+      alert(`Download failed: ${e.message}\n\nIf session expired, please login again.`);
+    } finally {
+      setDownloading(false);
+    }
+  };
+  
   const rows = (arr) =>
     arr.map(([l, v, b]) => (
       <div className="listitem" key={l}><span>{l}</span><b style={b ? { color: 'var(--red)' } : undefined}>{fmtMoney(v)}</b></div>
@@ -242,7 +256,9 @@ export function PayslipModal({ slip, onClose, onEmail }) {
         </ul>
       )}
       <div className="flex" style={{ marginTop: 14 }}>
-        <a className="btn" target="_blank" rel="noreferrer" href={`/api/payroll/payslips/${slip.id}/pdf`}>Download PDF ↓</a>
+        <button className="btn" onClick={handleDownload} disabled={downloading}>
+          {downloading ? 'Downloading...' : 'Download PDF ↓'}
+        </button>
         <button className="btn ghost" onClick={() => onEmail && onEmail(slip)}>Email this pay slip</button>
         <span className="spacer" style={{ flex: 1 }} />
         <Badge value={slip.status} />
