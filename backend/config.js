@@ -23,11 +23,17 @@ function bool(value, fallback) {
 const isServerless = Boolean(
   process.env.NETLIFY ||
     process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    process.env.LAMBDA_TASK_ROOT
+    process.env.LAMBDA_TASK_ROOT ||
+    process.env.AWS_EXECUTION_ENV
 );
 
 function defaultSqlitePath() {
-  if (isServerless) return path.join(os.tmpdir(), 'hrms', 'hrms.sqlite');
+  if (isServerless) {
+    // Use /tmp which is the only writable directory in Lambda/Netlify
+    // Try multiple locations for robustness
+    const tmp = os.tmpdir() || '/tmp';
+    return path.join(tmp, 'hrms', 'hrms.sqlite');
+  }
   return path.join(__dirname, 'data', 'hrms.sqlite');
 }
 
@@ -49,6 +55,7 @@ module.exports = {
   database: {
     // Supabase/Postgres connection string, e.g.
     // postgres://postgres:password@db.xxxx.supabase.co:5432/postgres
+    // IMPORTANT: On Netlify, use Session Pooler (pooler.supabase.com), NOT Direct (db.xxx.supabase.co)
     url: process.env.DATABASE_URL || '',
     // Local SQLite file (used automatically when DATABASE_URL is empty).
     // On Netlify/Lambda this must live in /tmp — see defaultSqlitePath().
@@ -58,7 +65,7 @@ module.exports = {
 
   jwt: {
     secret:
-      process.env.JWT_SECRET || 'hrms-dev-secret-do-not-use-in-production!!',
+      process.env.JWT_SECRET || 'hrms-dev-secret-do-not-use-in-production!!-change-me',
     expiresIn: process.env.JWT_EXPIRES_IN || '12h',
   },
 
@@ -66,6 +73,8 @@ module.exports = {
     // Seed demo data automatically when the database is empty.
     autoSeed: bool(process.env.AUTO_SEED, true),
     demoPassword: process.env.DEMO_PASSWORD || 'Demo@1234',
+    // Fast seed uses precomputed hashes for instant cold start
+    fastSeed: bool(process.env.FAST_SEED, isServerless),
   },
 
   corsOrigins: (process.env.CORS_ORIGINS || '*')
@@ -90,5 +99,14 @@ module.exports = {
   kiosk: {
     maxAttempts: 10, // failed PIN tries before temporary lock
     lockMinutes: 15,
+  },
+
+  // Serverless specific
+  serverless: {
+    // Whether to generate payroll during cold start (can be slow)
+    // Set to false for fastest cold start, payroll will be generated on demand
+    generatePayrollOnColdStart: bool(process.env.GENERATE_PAYROLL_ON_COLD_START, false),
+    // Timeout for DB operations in serverless (ms)
+    dbTimeout: parseInt(process.env.DB_TIMEOUT || '15000', 10),
   },
 };

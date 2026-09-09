@@ -22,20 +22,44 @@ let sequelize;
  * of crashing while the function is still loading (→ HTTP 502).
  */
 function resolveSqliteStorage(preferred) {
-  const candidates = [preferred, path.join(os.tmpdir(), 'hrms', 'hrms.sqlite')];
-  for (const file of candidates) {
+  const candidates = [
+    preferred,
+    path.join(os.tmpdir(), 'hrms', 'hrms.sqlite'),
+    path.join(os.tmpdir(), 'hrms.sqlite'),
+    path.join('/tmp', 'hrms.sqlite'),
+  ].filter(Boolean);
+  // Deduplicate while preserving order
+  const seen = new Set();
+  const uniq = candidates.filter((p) => {
+    if (seen.has(p)) return false;
+    seen.add(p);
+    return true;
+  });
+
+  let lastErr = null;
+  for (const file of uniq) {
     try {
       fs.mkdirSync(path.dirname(file), { recursive: true });
       fs.accessSync(path.dirname(file), fs.constants.W_OK);
+      // Try to touch the file to ensure we can write
+      try {
+        const fd = fs.openSync(file, 'a');
+        fs.closeSync(fd);
+      } catch (_) {
+        // file creation may fail but directory is writable — continue
+      }
       if (file !== preferred) {
         console.warn(`[hrms] "${preferred}" is not writable — using "${file}" for the SQLite database instead.`);
       }
+      console.log(`[hrms] SQLite storage resolved to: ${file}`);
       return file;
     } catch (err) {
-      if (file === candidates[candidates.length - 1]) throw err;
+      lastErr = err;
+      console.warn(`[hrms] SQLite candidate "${file}" not writable: ${err.message}`);
     }
   }
-  return preferred;
+  // If all fail, throw the last error
+  throw lastErr || new Error('No writable location for SQLite database');
 }
 
 /**
@@ -64,10 +88,18 @@ function checkSupabaseUrl(url) {
 
 function friendlyDbError(err) {
   const msg = String((err && err.message) || err);
+  const stack = String((err && err.stack) || '');
+  const combined = `${msg} ${stack}`;
   const directHost = (() => {
-    try { return /^db\.[a-z0-9]+\.supabase\.co$/i.test(new URL(config.database.url).hostname); } catch { return false; }
+    try {
+      return /^db\.[a-z0-9]+\.supabase\.co$/i.test(new URL(config.database.url).hostname);
+    } catch {
+      return false;
+    }
   })();
-  if (/ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT/.test(msg) && (directHost || /supabase\.co/.test(msg))) {
+
+  // Supabase direct host unreachable (IPv6 only)
+  if (/ENOTFOUND|EAI_AGAIN|ENETUNREACH|EHOSTUNREACH|ETIMEDOUT/.test(combined) && (directHost || /supabase\.co/.test(combined))) {
     const e = new Error(
       'DATABASE_URL uses the Supabase "Direct connection" host (db.<project>.supabase.co), which is IPv6-only ' +
         'and unreachable from Netlify. In Supabase click "Connect" and copy the "Session pooler" URI ' +
@@ -78,61 +110,154 @@ function friendlyDbError(err) {
     return e;
   }
   if (/password authentication failed/i.test(msg)) {
-    const e = new Error('Database rejected the password in DATABASE_URL. Re-copy the connection string from Supabase and replace [YOUR-PASSWORD] with your real database password.');
+    const e = new Error(
+      'Database rejected the password in DATABASE_URL. Re-copy the connection string from Supabase and replace [YOUR-PASSWORD] with your real database password.'
+    );
     e.code = 'DB_AUTH';
+    e.cause = err;
+    return e;
+  }
+  if (/ECONNREFUSED|connect ECONNREFUSED/i.test(combined)) {
+    const e = new Error(
+      'Cannot connect to the database. If using Supabase, ensure DATABASE_URL is the Session pooler URI (pooler.supabase.com) and that your Supabase project is running.'
+    );
+    e.code = 'DB_CONN_REFUSED';
+    e.cause = err;
+    return e;
+  }
+  if (/self signed certificate|SSL|TLS/i.test(combined) && config.database.url) {
+    const e = new Error(
+      'Database SSL connection failed. This usually happens with an incorrect DATABASE_URL. For Supabase, use the Session pooler URI with sslmode=require.'
+    );
+    e.code = 'DB_SSL';
+    e.cause = err;
+    return e;
+  }
+  if (/SQLITE_BUSY|database is locked|SQLITE_CANTOPEN/i.test(combined)) {
+    const e = new Error(
+      'SQLite database is busy or locked. This can happen with concurrent requests on Netlify. Please retry in a few seconds.'
+    );
+    e.code = 'DB_BUSY';
     e.cause = err;
     return e;
   }
   return err;
 }
 
+function loadDialectModule(name) {
+  try {
+    return require(name);
+  } catch (e) {
+    console.error(`[hrms] Failed to load ${name} module:`, e.message);
+    // For sqlite3, try to provide a helpful error
+    if (name === 'sqlite3') {
+      const err = new Error(
+        `SQLite module not available (${e.message}). On Netlify, ensure sqlite3 is listed in external_node_modules. Locally, run npm install.`
+      );
+      err.code = 'SQLITE_MODULE_MISSING';
+      throw err;
+    }
+    throw e;
+  }
+}
+
 if (config.database.url) {
   checkSupabaseUrl(config.database.url);
   sequelize = new Sequelize(config.database.url, {
     dialect: 'postgres',
-    // Explicit module reference: the Netlify function is bundled with
-    // esbuild, and a static require is what lets the bundler include it.
-    dialectModule: require('pg'),
+    dialectModule: loadDialectModule('pg'),
     logging: false,
     dialectOptions: {
       ssl: {
         require: true,
-        rejectUnauthorized: false, // Supabase uses a self-signed cert
+        rejectUnauthorized: false,
       },
+      connectionTimeoutMillis: 15000,
+      query_timeout: 15000,
+      statement_timeout: 15000,
     },
-    pool: { max: 5, min: 0, idle: 10000 },
+    pool: {
+      max: 5,
+      min: 0,
+      idle: 10000,
+      acquire: 20000,
+      evict: 10000,
+    },
+    retry: {
+      max: 3,
+    },
   });
 } else {
+  const storagePath = resolveSqliteStorage(config.database.storage);
+  const sqliteModule = loadDialectModule('sqlite3');
   sequelize = new Sequelize({
     dialect: 'sqlite',
-    // sqlite3 is a native module and is marked "external" in netlify.toml
-    // so Netlify ships the real binary instead of trying to bundle it.
-    dialectModule: require('sqlite3'),
-    storage: resolveSqliteStorage(config.database.storage),
+    dialectModule: sqliteModule,
+    storage: storagePath,
     logging: false,
+    dialectOptions: {},
+    pool: {
+      max: 1,
+      min: 0,
+      idle: 10000,
+      acquire: 20000,
+    },
+    retry: {
+      max: 3,
+      match: [/SQLITE_BUSY/, /database is locked/, /SQLITE_CANTOPEN/],
+    },
+  });
+  sequelize.addHook('afterConnect', (connection) => {
+    if (connection && typeof connection.run === 'function') {
+      try {
+        connection.run('PRAGMA busy_timeout = 5000;');
+        connection.run('PRAGMA journal_mode = WAL;');
+        connection.run('PRAGMA synchronous = NORMAL;');
+      } catch (_) {}
+    }
   });
 }
 
 /**
- * Connect and create/update the tables.
- *
- *  - force: drop everything and recreate (DANGEROUS, dev only).
- *  - alter: only used on Postgres. On SQLite, Sequelize implements
- *    ALTER as "copy table → DROP → CREATE", which fails with
- *    "FOREIGN KEY constraint failed" as soon as data exists. Because
- *    the Netlify function calls initDb() on every cold start, that
- *    error surfaced as a 503/502 on the second visit. A plain sync()
- *    creates any missing tables and is safe to run repeatedly.
+ * Connect and create/update the tables with retry logic.
  */
 async function initDb({ force = false, alter = false } = {}) {
-  try {
-    await sequelize.authenticate();
-  } catch (err) {
-    throw friendlyDbError(err);
+  const maxRetries = 3;
+  let lastErr = null;
+
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      console.log(`[hrms] initDb attempt ${attempt}/${maxRetries} (dialect: ${sequelize.getDialect()})`);
+      await sequelize.authenticate();
+      console.log('[hrms] Database authentication successful');
+      break;
+    } catch (err) {
+      lastErr = friendlyDbError(err);
+      console.error(`[hrms] Database authenticate failed (attempt ${attempt}):`, err.message);
+      if (attempt === maxRetries) throw lastErr;
+      // Wait before retry (exponential backoff)
+      await new Promise((r) => setTimeout(r, attempt * 1000));
+    }
   }
+
   const isSqlite = sequelize.getDialect() === 'sqlite';
-  await sequelize.sync({ force, alter: force ? false : alter && !isSqlite });
-  return sequelize;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      await sequelize.sync({ force, alter: force ? false : alter && !isSqlite });
+      console.log('[hrms] Database sync completed');
+      return sequelize;
+    } catch (err) {
+      lastErr = friendlyDbError(err);
+      console.error(`[hrms] Database sync failed (attempt ${attempt}):`, err.message);
+      // SQLITE_BUSY is retriable
+      if (/SQLITE_BUSY|database is locked/i.test(String(err.message)) && attempt < maxRetries) {
+        await new Promise((r) => setTimeout(r, attempt * 1500));
+        continue;
+      }
+      throw lastErr;
+    }
+  }
+  throw lastErr;
 }
 
-module.exports = { sequelize, initDb };
+module.exports = { sequelize, initDb, friendlyDbError };

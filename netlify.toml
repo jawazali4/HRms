@@ -11,15 +11,26 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  # Ensure native modules can be built if needed
+  NPM_FLAGS = "--ignore-scripts=false"
 
 [functions]
   node_bundler = "esbuild"
+  # Increase timeout for cold start with demo data seeding (default 10s is too short)
+  # Max allowed on free tier is 26s
+  timeout = 26
   # Native / filesystem-dependent packages must NOT be bundled by esbuild:
   #  - sqlite3 ships a compiled binary
   #  - pg / pg-hstore are loaded dynamically by Sequelize
   #  - pdfkit reads its built-in font files from disk at runtime
-  external_node_modules = ["sqlite3", "pg", "pg-hstore", "pdfkit"]
+  #  - bcryptjs is pure JS but we keep it external to reduce bundle size
+  external_node_modules = ["sqlite3", "pg", "pg-hstore", "pdfkit", "bcryptjs"]
   # Files the API needs on disk inside the function (fonts for pay-slip PDFs)
+  included_files = ["node_modules/pdfkit/js/data/**", "backend/data/**"]
+
+# Specific config for the API function
+[functions.api]
+  timeout = 26
   included_files = ["node_modules/pdfkit/js/data/**"]
 
 # Send every /api request to the Express API running inside a Netlify Function
@@ -38,3 +49,19 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Headers for better security and caching
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
