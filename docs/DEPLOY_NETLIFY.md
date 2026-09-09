@@ -83,16 +83,21 @@ and requires **zero SQL knowledge** — you only copy one line of text.
    - **Database password**: click **Generate a password**, copy it somewhere safe (Notes app).
    - **Region**: choose **Southeast Asia (Singapore)** — closest to Saudi Arabia.
    - Click **Create new project**. Wait ~2 minutes for it to be ready.
-3. On the left menu click **Project Settings** (gear icon) ▸ **Database**.
-4. Scroll to **Connection string**. Make sure the type says **URI**. Click **Copy**.
-   (It starts with `postgresql://postgres.…` — that long line is your database address.)
-5. In another tab, open your **Netlify** site ▸ **Site configuration** (or **Site settings**)
+3. At the top of the Supabase dashboard click the green **Connect** button.
+4. Under **Connection String**, you will see three choices. Pick **Session pooler**
+   (⚠️ **not** "Direct connection" — that one is IPv6-only and Netlify cannot reach it;
+   you would see *"Database is still starting"* forever). Click **Copy**.
+   - ✅ Correct: the address contains `pooler.supabase.com`, e.g.
+     `postgresql://postgres.abcd1234:[YOUR-PASSWORD]@aws-0-ap-southeast-1.pooler.supabase.com:5432/postgres`
+   - ❌ Wrong: the address contains `db.abcd1234.supabase.co`
+5. Replace `[YOUR-PASSWORD]` in the copied line with the database password you saved in step 2.
+6. In another tab, open your **Netlify** site ▸ **Site configuration** (or **Site settings**)
    ▸ **Environment variables** ▸ **Add a variable**:
    - **Key** (first box): `DATABASE_URL`
    - **Value** (second box): paste the long line you copied
    - Click **Save**.
-6. Go to **Deploys** tab ▸ click **Trigger deploy ▸ Deploy site**. Wait for green **Published**.
-7. Open your site again and refresh. The system now permanently stores everything in Supabase.
+7. Go to **Deploys** tab ▸ click **Trigger deploy ▸ Deploy site**. Wait for green **Published**.
+8. Open your site again and refresh. The system now permanently stores everything in Supabase.
    It creates all the tables and demo data automatically on the first visit after connecting.
 
 > 🛡️ Your database is protected by the password Netlify knows. Only your site can read it.
@@ -192,10 +197,12 @@ To force a rebuild now: **Deploys ▸ Trigger deploy ▸ Deploy site**.
 | Problem | Fix |
 |---|---|
 | Page says *"Database is still starting. Please refresh"* | The very first visit builds the database. Wait ~15 seconds, press **F5**. |
+| *"Database is still starting"* **never goes away**, or the message mentions `db.….supabase.co` / *Direct connection* | Your `DATABASE_URL` is the Supabase **Direct connection** string, which Netlify cannot reach (IPv6 only). In Supabase click **Connect** ▸ copy the **Session pooler** URI (contains `pooler.supabase.com`) ▸ paste it into Netlify's `DATABASE_URL` (with your real password) ▸ **Trigger deploy**. |
 | Login says *"Wrong email or password"* | Check the exact email and the password `Demo@1234`. Passwords are case-sensitive. |
 | Attendance / pay slips disappear later | You are on Netlify's temporary storage. Connect the free Supabase database (Section 4). |
 | Pay slip email button says *"Email is not configured"* | Complete Section 5 (Gmail + app password), then trigger a deploy. |
 | Site shows a **404** after deploy | Wait for the green **Published** badge, then refresh. |
+| Site shows **502 Bad Gateway** or *"Request failed (502)"* on login | The API function crashed while starting. Open **Netlify ▸ Logs ▸ Functions ▸ api** and read the last error. Usual causes: a wrong `DATABASE_URL` (re-copy it from Supabase, including the password) or a red build in **Deploys**. Trigger a fresh deploy after fixing. |
 | Clock-in kiosk says *"PIN not correct"* | Demo PIN is `1234`. HR can set/reset a PIN via **Employees ▸ PIN**; employees can change their own in **My Profile**. |
 | You changed code but the site looks the same | Netlify auto-builds from GitHub. Check **Deploys** for a red build and read the error, or **Trigger deploy**. |
 | I want my own nice domain like `hr.company.com` | In Netlify: **Domain settings ▸ Add a domain**, then change DNS at your domain provider. (Buy a domain at any registrar; ~$10/year.) |
