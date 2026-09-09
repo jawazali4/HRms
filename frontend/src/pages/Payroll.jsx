@@ -84,7 +84,8 @@ export default function Payroll() {
     }
   };
 
-  if (!slips) return <Loader />;
+  if (!slips && !err) return <Loader />;
+  if (err && !slips) return <Loader error={err} onRetry={load} />;
 
   const locked = slips.some((s) => s.status === 'paid');
   const notRun = status ? status.filter((r) => r.status === 'not_run') : [];

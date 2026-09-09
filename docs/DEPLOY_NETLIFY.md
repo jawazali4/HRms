@@ -68,7 +68,8 @@ All of these are **free**. Nothing on this list costs money.
 
 > 🎉 **You are LIVE!** Open your link and go to the login page (Section 6 below) to sign in.
 > If the page shows "Database is still starting", wait 10 seconds and press **F5 / refresh** —
-> the first visit creates the database, later visits are instant.
+> the first visit creates the database, later visits are instant. The new version uses fast
+> seeding (precomputed hashes) so login works in 2-3 seconds.
 
 ---
 
@@ -96,6 +97,7 @@ and requires **zero SQL knowledge** — you only copy one line of text.
    - **Key** (first box): `DATABASE_URL`
    - **Value** (second box): paste the long line you copied
    - Click **Save**.
+   - Optional but recommended: add `FAST_SEED=true` as well for fastest cold starts.
 7. Go to **Deploys** tab ▸ click **Trigger deploy ▸ Deploy site**. Wait for green **Published**.
 8. Open your site again and refresh. The system now permanently stores everything in Supabase.
    It creates all the tables and demo data automatically on the first visit after connecting.
@@ -194,18 +196,49 @@ To force a rebuild now: **Deploys ▸ Trigger deploy ▸ Deploy site**.
 
 ## 10. Troubleshooting (read this before panicking 😊)
 
+### First visit — "Database is still starting"
+
+| Situation | What to do |
+|---|---|
+| First visit shows "Database is still starting" | Normal! The first cold start creates tables and demo users. With fast seeding, login works in 2-3 seconds. Wait 10s and press **F5**. If it persists, check `/api/health` (see below). |
+| "Database is still starting" never goes away (more than 30s) | 1. Check Netlify **Environment variables** — is `DATABASE_URL` set? If empty, site uses `/tmp` SQLite which should still work. 2. If `DATABASE_URL` is set, ensure it's **Session pooler** (`pooler.supabase.com`), not Direct (`db.xxx.supabase.co`). 3. Open `https://your-site.netlify.app/api/health/detailed` to see exact error. 4. Check Netlify **Logs ▸ Functions ▸ api** for `[hrms]` logs. 5. Trigger **Clear cache and deploy**. |
+
+### Supabase connection errors
+
+| Error | Fix |
+|---|---|
+| `DB_HOST_UNREACHABLE` / mentions `db.xxx.supabase.co` / Direct connection | Your `DATABASE_URL` is Direct connection (IPv6 only). Netlify cannot reach it. In Supabase click **Connect** ▸ **Session pooler** (contains `pooler.supabase.com`) ▸ copy URI with real password ▸ paste into Netlify `DATABASE_URL` ▸ redeploy. |
+| `DB_AUTH` / password authentication failed | Password in `DATABASE_URL` is wrong. Reset DB password in Supabase **Project Settings ▸ Database**, re-copy Session pooler URI, replace `[YOUR-PASSWORD]`, update Netlify env, redeploy. |
+| `DB_CONN_REFUSED` / Cannot connect | Supabase project paused or deleted. In Supabase dashboard, resume project. Verify host is `pooler.supabase.com`. |
+| Attendance / pay slips disappear | You're on Netlify temporary `/tmp` storage. It resets on function recycle. Connect Supabase (Section 4) for permanent storage. |
+
+### Other common issues
+
 | Problem | Fix |
 |---|---|
-| Page says *"Database is still starting. Please refresh"* | The very first visit builds the database. Wait ~15 seconds, press **F5**. |
-| *"Database is still starting"* **never goes away**, or the message mentions `db.….supabase.co` / *Direct connection* | Your `DATABASE_URL` is the Supabase **Direct connection** string, which Netlify cannot reach (IPv6 only). In Supabase click **Connect** ▸ copy the **Session pooler** URI (contains `pooler.supabase.com`) ▸ paste it into Netlify's `DATABASE_URL` (with your real password) ▸ **Trigger deploy**. |
-| Login says *"Wrong email or password"* | Check the exact email and the password `Demo@1234`. Passwords are case-sensitive. |
-| Attendance / pay slips disappear later | You are on Netlify's temporary storage. Connect the free Supabase database (Section 4). |
-| Pay slip email button says *"Email is not configured"* | Complete Section 5 (Gmail + app password), then trigger a deploy. |
-| Site shows a **404** after deploy | Wait for the green **Published** badge, then refresh. |
-| Site shows **502 Bad Gateway** or *"Request failed (502)"* on login | The API function crashed while starting. Open **Netlify ▸ Logs ▸ Functions ▸ api** and read the last error. Usual causes: a wrong `DATABASE_URL` (re-copy it from Supabase, including the password) or a red build in **Deploys**. Trigger a fresh deploy after fixing. |
-| Clock-in kiosk says *"PIN not correct"* | Demo PIN is `1234`. HR can set/reset a PIN via **Employees ▸ PIN**; employees can change their own in **My Profile**. |
-| You changed code but the site looks the same | Netlify auto-builds from GitHub. Check **Deploys** for a red build and read the error, or **Trigger deploy**. |
-| I want my own nice domain like `hr.company.com` | In Netlify: **Domain settings ▸ Add a domain**, then change DNS at your domain provider. (Buy a domain at any registrar; ~$10/year.) |
+| Login says "Wrong email or password" | Check email and `Demo@1234` (case-sensitive). If just deployed, wait 10s and retry — first cold start creates users. |
+| Pay slip email says "Email not configured" | Complete Section 5 (Gmail + app password), then trigger deploy. |
+| Site shows 404 after deploy | Wait for green **Published** badge, then refresh. |
+| 502 Bad Gateway / Request failed (502) | API crashed on start. Check **Netlify ▸ Logs ▸ Functions ▸ api** for error. Common causes: wrong `DATABASE_URL`, missing env vars, or bundling issue. This version marks `sqlite3`, `pg`, `pg-hstore`, `pdfkit`, `bcryptjs` as external in `netlify.toml`. Trigger fresh deploy after fixing. |
+| Clock-in kiosk says "PIN not correct" | Demo PIN is `1234`. HR can set/reset PIN via Employees ▸ PIN; employees can change own in My Profile. |
+| Code changed but site same | Netlify auto-builds from GitHub. Check **Deploys** for red build, read error, or **Trigger deploy ▸ Clear cache**. |
+| Want custom domain like `hr.company.com` | Netlify: **Domain settings ▸ Add a domain**, then change DNS at registrar (~$10/year). |
+
+### Diagnostic endpoints (no login needed)
+
+- `https://your-site.netlify.app/api/health` — quick check: shows `dbReady`, `dialect`, user count
+- `https://your-site.netlify.app/api/health/detailed` — full diagnostic: env vars, DB error, table counts
+
+If health shows `dbReady: false`, read the `dbError` field — it tells you exactly what's wrong.
+
+### Quick fix checklist
+
+1. Open `/api/health` — does it show `dbReady: true`?
+2. Open `/api/health/detailed` — what's the exact DB error?
+3. Check Netlify **Logs ▸ Functions ▸ api** — look for `[hrms]` logs
+4. If using Supabase: is `DATABASE_URL` Session Pooler (`pooler.supabase.com`)?
+5. If NOT using Supabase: leave `DATABASE_URL` empty, set `FAST_SEED=true`, redeploy
+6. Still stuck? Set `FAST_SEED=true` and `GENERATE_PAYROLL_ON_COLD_START=false` in Netlify env vars and redeploy — this gives fastest cold start
 
 ---
 

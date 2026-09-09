@@ -18,9 +18,17 @@
   #  - sqlite3 ships a compiled binary
   #  - pg / pg-hstore are loaded dynamically by Sequelize
   #  - pdfkit reads its built-in font files from disk at runtime
-  external_node_modules = ["sqlite3", "pg", "pg-hstore", "pdfkit"]
+  #  - bcryptjs is pure JS but we keep it external to reduce bundle size
+  external_node_modules = ["sqlite3", "pg", "pg-hstore", "pdfkit", "bcryptjs"]
   # Files the API needs on disk inside the function (fonts for pay-slip PDFs)
   included_files = ["node_modules/pdfkit/js/data/**"]
+
+# Specific config for the API function - increase timeout for cold start (default 10s is too short)
+[functions.api]
+  timeout = 26
+  included_files = ["node_modules/pdfkit/js/data/**"]
+  external_node_modules = ["sqlite3", "pg", "pg-hstore", "pdfkit", "bcryptjs"]
+  node_bundler = "esbuild"
 
 # Send every /api request to the Express API running inside a Netlify Function
 [[redirects]]
@@ -38,3 +46,19 @@
   from = "/*"
   to = "/index.html"
   status = 200
+
+# Headers for better security and caching
+[[headers]]
+  for = "/assets/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.js"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/*.css"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"

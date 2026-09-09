@@ -77,7 +77,8 @@ export default function Assets() {
     }
   };
 
-  if (!assets) return <Loader />;
+  if (!assets && !err) return <Loader />;
+  if (err && !assets) return <Loader error={err} onRetry={load} />;
 
   const mine = user.employee ? assets.filter((a) => a.assignedToId === user.employee.id) : [];
 

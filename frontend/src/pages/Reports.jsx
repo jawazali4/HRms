@@ -44,7 +44,8 @@ export default function Reports() {
     download(url, name).catch((e) => alert(e.message));
   };
 
-  if (!att) return <Loader />;
+  if (!att && !err) return <Loader />;
+  if (err && !att) return <Loader error={err} onRetry={load} />;
 
   return (
     <div>

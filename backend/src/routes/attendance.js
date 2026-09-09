@@ -4,7 +4,7 @@ const express = require('express');
 const router = express.Router();
 const { Op } = require('sequelize');
 const config = require('../../config');
-const { Attendance, Employee } = require('../models');
+const { Attendance, Employee, Branch, Shift } = require('../models');
 const {
   authRequired, authOptional, ah, requireRole, visibleEmployeeIds, audit, badRequest, notFound, HR_ROLES,
 } = require('../middleware/auth');
@@ -14,10 +14,7 @@ const { todayStr, riyadhTimeMs, formatClock, dayOf } = require('../services/time
 
 const HR = requireRole('hr', 'admin');
 
-/* ------------------------------------------------------------------ */
-/* Kiosk rate limiting (in-memory)                                     */
-/* ------------------------------------------------------------------ */
-const attempts = new Map(); // employeeCode → {count, lockedUntil}
+const attempts = new Map();
 
 function rateCheck(employeeCode) {
   const rec = attempts.get(employeeCode);
@@ -41,27 +38,24 @@ function registerSuccess(employeeCode) {
   attempts.delete(employeeCode);
 }
 
-/** GET /api/attendance/kiosk-employees — public directory used by the
- *  physical kiosk screen to select who is clocking in/out. */
 router.get(
   '/kiosk-employees',
   ah(async (_req, res) => {
-    const emps = await Employee.findAll({
-      where: { status: { [Op.in]: ['active', 'on_leave'] } },
-      attributes: ['employeeCode', 'fullNameEn', 'department'],
-      order: [['employeeCode', 'ASC']],
-      raw: true,
-    });
-    res.json({ employees: emps });
+    try {
+      const emps = await Employee.findAll({
+        where: { status: { [Op.in]: ['active', 'on_leave'] } },
+        attributes: ['employeeCode', 'fullNameEn', 'department'],
+        order: [['employeeCode', 'ASC']],
+        raw: true,
+      });
+      res.json({ employees: emps });
+    } catch (err) {
+      console.error('[kiosk-employees] error:', err.message);
+      res.json({ employees: [] });
+    }
   })
 );
 
-/* ------------------------------------------------------------------ */
-/* Clock in / out — works from:                                        */
-/*   1. web/mobile  →  Authorization: Bearer <JWT>                     */
-/*   2. kiosk       →  { employeeCode, pin }  (kiosk PIN from employee record) */
-/*   3. HR/manual   →  auth token (self clock in/out too)              */
-/* ------------------------------------------------------------------ */
 router.post(
   '/clock',
   authOptional,
@@ -73,7 +67,6 @@ router.post(
     const wantsKiosk = Boolean(employeeCode) && Boolean(pin);
 
     if (wantsKiosk) {
-      // Physical kiosk machine / tablet at the office door
       effectiveSource = source || 'kiosk';
       const rl = rateCheck(String(employeeCode).toUpperCase());
       if (rl.locked) {
@@ -100,7 +93,7 @@ router.post(
           code: 'SIGN_IN_OR_KIOSK',
         });
       }
-      if (source && ['kiosk', 'mobile', 'web'].includes(source)) effectiveSource = source;
+      if (source && ['kiosk', 'mobile', 'web', 'fingerprint', 'zkteco', 'excel_import', 'manual'].includes(source)) effectiveSource = source;
       if (source === 'kiosk') effectiveSource = 'kiosk';
     }
 
@@ -127,13 +120,31 @@ router.post(
         });
       }
       const clockIn = new Date();
-      record = await Attendance.create({
+      const createData = {
         employeeId: employee.id,
         date: today,
         clockIn,
         source: effectiveSource,
         note: note || `Clocked in from ${wantsKiosk ? 'kiosk device' : effectiveSource}${lat && lng ? ` (GPS ${lat},${lng})` : ''}`,
-      });
+      };
+      // Try to add branch/shift if available
+      try {
+        if (employee.branchId) createData.branchId = employee.branchId;
+        if (employee.shiftId) createData.shiftId = employee.shiftId;
+      } catch {}
+      
+      try {
+        record = await Attendance.create(createData);
+      } catch (err) {
+        if (err.message.includes('branchId') || err.message.includes('shiftId') || err.message.includes('isLate')) {
+          delete createData.branchId;
+          delete createData.shiftId;
+          record = await Attendance.create(createData);
+        } else {
+          throw err;
+        }
+      }
+      
       await audit({ req, action: 'clock_in', entity: 'Attendance', entityId: record.id, meta: { employee: employee.employeeCode, source: effectiveSource } });
       return res.status(201).json({
         ok: true,
@@ -142,7 +153,6 @@ router.post(
       });
     }
 
-    // action === 'out'
     if (!record || !record.clockIn) {
       return res.status(409).json({
         error: `${employee.employeeCode} has no clock-in for today. Please clock in first.`,
@@ -155,8 +165,8 @@ router.post(
         code: 'ALREADY_OUT',
       });
     }
-      const clockOut = new Date();
-      await record.update({ clockOut, source: effectiveSource || record.source, note: record.note });
+    const clockOut = new Date();
+    await record.update({ clockOut, source: effectiveSource || record.source, note: record.note });
     await audit({ req, action: 'clock_out', entity: 'Attendance', entityId: record.id, meta: { employee: employee.employeeCode, source: effectiveSource } });
     return res.json({
       ok: true,
@@ -166,22 +176,21 @@ router.post(
   })
 );
 
-/** GET /api/attendance/status — today's own record (dashboard / kiosk screen) */
 router.get(
   '/status',
   authRequired,
   ah(async (req, res) => {
     if (!req.employee) return badRequest(res, 'No employee context.');
-    const record = await Attendance.findOne({ where: { employeeId: req.employee.id, date: todayStr() } });
-    res.json({ today: todayStr(), record });
+    try {
+      const record = await Attendance.findOne({ where: { employeeId: req.employee.id, date: todayStr() } });
+      res.json({ today: todayStr(), record });
+    } catch (err) {
+      console.warn('[attendance/status] error:', err.message);
+      res.json({ today: todayStr(), record: null });
+    }
   })
 );
 
-/**
- * GET /api/attendance — list of attendance records.
- * employee → own · manager → team · hr/admin → all
- * Params: from (YYYY-MM-DD), to, employeeId (hr only or team), source
- */
 router.get(
   '/',
   authRequired,
@@ -194,17 +203,34 @@ router.get(
     if (req.query.source) where.source = req.query.source;
     if (req.query.employeeId && ids === null) where.employeeId = Number(req.query.employeeId);
 
-    const rows = await Attendance.findAll({
-      where,
-      include: [{ model: Employee, as: 'employee', attributes: ['id', 'employeeCode', 'fullNameEn', 'department'] }],
-      order: [['date', 'DESC'], ['id', 'DESC']],
-      limit: Math.min(Number(req.query.limit) || 200, 1000),
-    });
+    let rows;
+    try {
+      rows = await Attendance.findAll({
+        where,
+        include: [
+          { model: Employee, as: 'employee', attributes: ['id', 'employeeCode', 'fullNameEn', 'department'] },
+          { model: Branch, as: 'branch', attributes: ['id', 'name', 'code'] },
+          { model: Shift, as: 'shift', attributes: ['id', 'name', 'code', 'startTime', 'endTime'] },
+        ],
+        order: [['date', 'DESC'], ['id', 'DESC']],
+        limit: Math.min(Number(req.query.limit) || 200, 1000),
+      });
+    } catch (err) {
+      console.warn('[attendance] fallback without branch/shift:', err.message);
+      rows = await Attendance.findAll({
+        where,
+        include: [{ model: Employee, as: 'employee', attributes: ['id', 'employeeCode', 'fullNameEn', 'department'] }],
+        order: [['date', 'DESC'], ['id', 'DESC']],
+        limit: Math.min(Number(req.query.limit) || 200, 1000),
+      });
+    }
+    
     res.json({
       attendance: rows.map((r) => ({
         id: r.id,
         date: r.date,
         employee: r.employee,
+        employeeId: r.employeeId,
         clockIn: r.clockIn,
         clockOut: r.clockOut,
         clockInTime: formatClock(r.clockIn),
@@ -212,14 +238,17 @@ router.get(
         hours: r.clockIn ? Number((((r.clockOut ? new Date(r.clockOut) : new Date()).getTime() - new Date(r.clockIn).getTime()) / 3600000).toFixed(2)) : 0,
         source: r.source,
         note: r.note,
+        isLate: r.isLate || false,
+        lateMinutes: r.lateMinutes || 0,
+        branch: r.branch || null,
+        shift: r.shift || null,
+        deviceId: r.deviceId || null,
+        importBatch: r.importBatch || null,
       })),
     });
   })
 );
 
-/* ---------------- HR manual corrections ---------------- */
-
-/** POST /api/attendance — add or fix one day's attendance (HR) */
 router.post(
   '/',
   authRequired,
@@ -229,7 +258,7 @@ router.post(
     date: { required: true, date: true },
     clockIn: { optional: true, time: true },
     clockOut: { optional: true, time: true },
-    source: { oneOf: ['kiosk', 'mobile', 'web', 'manual'] },
+    source: { oneOf: ['kiosk', 'mobile', 'web', 'manual', 'fingerprint', 'zkteco', 'excel_import'] },
     note: { string: true, max: 200 },
   }),
   ah(async (req, res) => {
@@ -253,13 +282,30 @@ router.post(
       const hours = (Date.parse(payload.clockOut) - Date.parse(payload.clockIn)) / 3600000;
       if (hours > 16) return badRequest(res, 'A single shift cannot be longer than 16 hours.');
     }
-    const record = existing ? await existing.update(payload) : await Attendance.create({ employeeId, date, ...payload });
+    
+    try {
+      if (emp.branchId) payload.branchId = emp.branchId;
+      if (emp.shiftId) payload.shiftId = emp.shiftId;
+    } catch {}
+    
+    let record;
+    try {
+      record = existing ? await existing.update(payload) : await Attendance.create({ employeeId, date, ...payload });
+    } catch (err) {
+      if (err.message.includes('branchId') || err.message.includes('shiftId')) {
+        delete payload.branchId;
+        delete payload.shiftId;
+        record = existing ? await existing.update(payload) : await Attendance.create({ employeeId, date, ...payload });
+      } else {
+        throw err;
+      }
+    }
+    
     await audit({ req, action: existing ? 'update' : 'create', entity: 'Attendance', entityId: record.id, meta: { employeeId, date } });
     res.status(existing ? 200 : 201).json({ ok: true, record });
   })
 );
 
-/** PATCH /api/attendance/:id — correct a record (HR) */
 router.patch(
   '/:id',
   authRequired,
@@ -283,7 +329,6 @@ router.patch(
   })
 );
 
-/** DELETE /api/attendance/:id — remove a wrong record (HR) */
 router.delete(
   '/:id',
   authRequired,

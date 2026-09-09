@@ -90,7 +90,8 @@ export default function Leave() {
     return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86400000) + 1;
   };
 
-  if (!requests) return <Loader />;
+  if (!requests && !error) return <Loader />;
+  if (error && !requests) return <Loader error={error} onRetry={load} />;
 
   const canDecide = (r) => isHR || (role === 'manager');
 

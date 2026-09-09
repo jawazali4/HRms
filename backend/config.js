@@ -23,11 +23,17 @@ function bool(value, fallback) {
 const isServerless = Boolean(
   process.env.NETLIFY ||
     process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    process.env.LAMBDA_TASK_ROOT
+    process.env.LAMBDA_TASK_ROOT ||
+    process.env.AWS_EXECUTION_ENV
 );
 
 function defaultSqlitePath() {
-  if (isServerless) return path.join(os.tmpdir(), 'hrms', 'hrms.sqlite');
+  if (isServerless) {
+    // Use /tmp which is the only writable directory in Lambda/Netlify
+    // Try multiple locations for robustness
+    const tmp = os.tmpdir() || '/tmp';
+    return path.join(tmp, 'hrms', 'hrms.sqlite');
+  }
   return path.join(__dirname, 'data', 'hrms.sqlite');
 }
 
@@ -47,18 +53,22 @@ module.exports = {
   port: parseInt(process.env.PORT || '4000', 10),
 
   database: {
-    // Supabase/Postgres connection string, e.g.
-    // postgres://postgres:password@db.xxxx.supabase.co:5432/postgres
+    // Supabase/Postgres connection string
+    // IMPORTANT FOR SPEED & POOLING:
+    // - On Netlify/Vercel serverless, use TRANSACTION Pooler (port 6543) for best performance
+    //   Example: postgres://postgres.xxx:password@aws-0-xx.pooler.supabase.com:6543/postgres?pgbouncer=true
+    // - Session Pooler (port 5432) works but has max 15 clients limit -> can hit EMAXCONNSESSION
+    // - Direct connection (db.xxx.supabase.co) is IPv6 only and WON'T work on Netlify
     url: process.env.DATABASE_URL || '',
-    // Local SQLite file (used automatically when DATABASE_URL is empty).
-    // On Netlify/Lambda this must live in /tmp — see defaultSqlitePath().
     storage: process.env.DB_STORAGE || defaultSqlitePath(),
-    forceSync: bool(process.env.DB_FORCE_SYNC, false), // drop + recreate (DANGEROUS)
+    forceSync: bool(process.env.DB_FORCE_SYNC, false),
+    // Set to true to force DB sync with alter:true on next startup (fixes missing columns)
+    forceMigrate: bool(process.env.DB_FORCE_MIGRATE, false),
   },
 
   jwt: {
     secret:
-      process.env.JWT_SECRET || 'hrms-dev-secret-do-not-use-in-production!!',
+      process.env.JWT_SECRET || 'hrms-dev-secret-do-not-use-in-production!!-change-me',
     expiresIn: process.env.JWT_EXPIRES_IN || '12h',
   },
 
@@ -66,6 +76,12 @@ module.exports = {
     // Seed demo data automatically when the database is empty.
     autoSeed: bool(process.env.AUTO_SEED, true),
     demoPassword: process.env.DEMO_PASSWORD || 'Demo@1234',
+    // Fast seed uses precomputed hashes for instant cold start
+    fastSeed: bool(process.env.FAST_SEED, isServerless),
+    // Set to true to remove demo data and start with empty DB (for production)
+    removeDemoData: bool(process.env.REMOVE_DEMO_DATA, false),
+    // When true, only create admin user, no demo employees
+    productionMode: bool(process.env.PRODUCTION_MODE, false),
   },
 
   corsOrigins: (process.env.CORS_ORIGINS || '*')
@@ -90,5 +106,14 @@ module.exports = {
   kiosk: {
     maxAttempts: 10, // failed PIN tries before temporary lock
     lockMinutes: 15,
+  },
+
+  // Serverless specific
+  serverless: {
+    // Whether to generate payroll during cold start (can be slow)
+    // Set to false for fastest cold start, payroll will be generated on demand
+    generatePayrollOnColdStart: bool(process.env.GENERATE_PAYROLL_ON_COLD_START, false),
+    // Timeout for DB operations in serverless (ms)
+    dbTimeout: parseInt(process.env.DB_TIMEOUT || '15000', 10),
   },
 };

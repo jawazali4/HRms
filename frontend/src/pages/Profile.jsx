@@ -56,7 +56,8 @@ export default function Profile() {
     }
   };
 
-  if (!me) return <Loader />;
+  if (!me && !err) return <Loader />;
+  if (err && !me) return <Loader error={err} onRetry={load} />;
 
   const emp = me.user.employee;
   const b = me.balances;

@@ -62,7 +62,8 @@ export default function Loans() {
     }
   };
 
-  if (!loans) return <Loader />;
+  if (!loans && !error) return <Loader />;
+  if (error && !loans) return <Loader error={error} onRetry={load} />;
 
   const pendingCount = loans.filter((l) => l.status === 'pending').length;
   const active = loans.filter((l) => ['active', 'approved'].includes(l.status));
