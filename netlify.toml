@@ -16,9 +16,6 @@
 
 [functions]
   node_bundler = "esbuild"
-  # Increase timeout for cold start with demo data seeding (default 10s is too short)
-  # Max allowed on free tier is 26s
-  timeout = 26
   # Native / filesystem-dependent packages must NOT be bundled by esbuild:
   #  - sqlite3 ships a compiled binary
   #  - pg / pg-hstore are loaded dynamically by Sequelize
@@ -30,7 +27,6 @@
 
 # Specific config for the API function
 [functions.api]
-  timeout = 26
   included_files = ["node_modules/pdfkit/js/data/**"]
 
 # Send every /api request to the Express API running inside a Netlify Function
