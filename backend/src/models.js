@@ -23,7 +23,7 @@ const User = sequelize.define(
     employeeId: {
       type: DataTypes.INTEGER,
       allowNull: true,
-      references: { model: 'Employees', key: 'id' },
+      references: { model: 'employees', key: 'id' },
     },
   },
   { tableName: 'users' }
